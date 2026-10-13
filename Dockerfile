@@ -15,7 +15,7 @@ RUN pip install --no-cache-dir -r requirements-prod.txt
 COPY . .
 
 # Railway injects PORT env var
-ENV PORT=8000
-EXPOSE $PORT
+EXPOSE 8000
 
-CMD uvicorn backend.app:app --host 0.0.0.0 --port $PORT --workers 2
+# Railway sets PORT env var — single worker avoids fork issues in containers
+CMD uvicorn backend.app:app --host 0.0.0.0 --port ${PORT:-8000}

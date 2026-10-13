@@ -1,0 +1,14 @@
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+python-multipart==0.0.9
+python-dotenv==1.0.1
+aiofiles==23.2.1
+httpx==0.27.0
+supabase==2.4.6
+# Fix #1: the code imports `google.genai`, which is the *google-genai* package
+# (NOT google-generativeai, which is the old, different SDK).
+google-genai>=1.0.0
+# Fix #7: faster-whisper replaces openai-whisper + torch (no torch download)
+faster-whisper>=1.0.3
+pydantic==2.7.1
+pydantic-settings==2.2.1

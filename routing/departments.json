@@ -1,0 +1,178 @@
+{
+  "departments": {
+    "Billing": {
+      "keywords": [
+        "bill",
+        "billing",
+        "charge",
+        "overcharge",
+        "duplicate charge",
+        "refund",
+        "invoice",
+        "payment",
+        "amount",
+        "receipt",
+        "fee",
+        "cost",
+        "price",
+        "rupees",
+        "rs.",
+        "money",
+        "deduct",
+        "deducted",
+        "extra charge",
+        "wrong amount"
+      ],
+      "description": "Handles billing disputes, refunds, invoices, and payment queries",
+      "default_assignee": "Billing Team"
+    },
+    "Insurance": {
+      "keywords": [
+        "insurance",
+        "cashless",
+        "tpa",
+        "pre-auth",
+        "preauthorization",
+        "pre authorization",
+        "claim",
+        "claim status",
+        "policy",
+        "policy number",
+        "mediclaim",
+        "reimbursement",
+        "insurer",
+        "coverage",
+        "co-pay",
+        "copay"
+      ],
+      "description": "Handles insurance, cashless approvals, TPA and claim queries",
+      "default_assignee": "Insurance Desk"
+    },
+    "Scheduling": {
+      "keywords": [
+        "appointment",
+        "follow-up",
+        "followup",
+        "schedule",
+        "booking",
+        "consultation",
+        "doctor",
+        "visit",
+        "checkup",
+        "check-up",
+        "reschedule",
+        "cancel appointment",
+        "date",
+        "time slot",
+        "next visit",
+        "review",
+        "not called",
+        "no call"
+      ],
+      "description": "Handles appointment bookings, follow-ups, and scheduling",
+      "default_assignee": "Outpatient Scheduling"
+    },
+    "Pharmacy": {
+      "keywords": [
+        "medicine",
+        "medication",
+        "drug",
+        "prescription",
+        "tablet",
+        "capsule",
+        "injection",
+        "refill",
+        "pharmacy",
+        "dosage",
+        "out of stock",
+        "not available",
+        "syrup",
+        "ointment"
+      ],
+      "description": "Handles prescription queries and medicine availability",
+      "default_assignee": "Pharmacy Team"
+    },
+    "Lab Reports": {
+      "keywords": [
+        "lab report",
+        "blood report",
+        "blood test",
+        "test result",
+        "report ready",
+        "report not received",
+        "urine test",
+        "sample",
+        "pathology",
+        "culture report",
+        "report collection",
+        "hba1c",
+        "cbc"
+      ],
+      "description": "Handles lab test bookings, sample collection, and report queries",
+      "default_assignee": "Lab Desk"
+    },
+    "Radiology": {
+      "keywords": [
+        "x-ray",
+        "xray",
+        "mri",
+        "ct scan",
+        "scan",
+        "ultrasound",
+        "usg",
+        "sonography",
+        "ecg",
+        "echo",
+        "radiology",
+        "scan report",
+        "scan result",
+        "imaging"
+      ],
+      "description": "Handles X-ray, MRI, CT, ultrasound bookings and imaging reports",
+      "default_assignee": "Radiology Desk"
+    },
+    "Clinical": {
+      "keywords": [
+        "pain",
+        "fever",
+        "breathless",
+        "chest pain",
+        "bleeding",
+        "symptoms",
+        "worse",
+        "worsening",
+        "infection",
+        "wound",
+        "side effect",
+        "allergic",
+        "reaction",
+        "nurse",
+        "doctor urgent"
+      ],
+      "description": "Handles new or worsening symptoms, side effects, and medical questions",
+      "default_assignee": "Clinical Duty Nurse"
+    },
+    "Admin": {
+      "keywords": [
+        "complaint",
+        "feedback",
+        "record",
+        "report",
+        "discharge",
+        "summary",
+        "certificate",
+        "document",
+        "transfer",
+        "admission",
+        "room",
+        "ward",
+        "staff",
+        "nurse",
+        "rude",
+        "behaviour"
+      ],
+      "description": "Handles admin, complaints, records, and general queries",
+      "default_assignee": "Admin Office"
+    }
+  }
+}

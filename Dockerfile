@@ -7,15 +7,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Install production Python deps (no faster-whisper, no torch — Groq handles ASR)
+# Install production Python deps
 COPY requirements-prod.txt .
 RUN pip install --no-cache-dir -r requirements-prod.txt
 
 # Copy app source
 COPY . .
 
-# Railway injects PORT env var
+# Make entrypoint executable
+RUN chmod +x entrypoint.sh
+
 EXPOSE 8000
 
-# Railway sets PORT env var — single worker avoids fork issues in containers
-CMD uvicorn backend.app:app --host 0.0.0.0 --port ${PORT:-8000}
+ENTRYPOINT ["sh", "entrypoint.sh"]

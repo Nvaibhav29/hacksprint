@@ -1,79 +1,60 @@
 """
-LLM provider chain.
-Tries the providers in LLM_ORDER (default: groq, gemini, qwen). Providers without
-an API key are skipped; qwen is the local Ollama model.
-
-Fix #6: fallback is now triggered by *bad output* as well as by API errors.
-For each provider: call -> parse/validate -> on bad output retry once ->
-then move on to the next provider.
+LLM provider chain — Groq first, local Ollama (Qwen) fallback.
+No Gemini. No other cloud providers.
 """
 import logging
-from typing import Callable, Any
-
-from config import get_settings, parse_order
-from llm.providers import gemini, qwen_ollama, groq_llm
+from config import get_settings
+from llm.providers import groq_llm, qwen_ollama
 
 logger = logging.getLogger(__name__)
 
-RETRIES_PER_PROVIDER = 1   # one retry after the first attempt
+RETRIES_PER_PROVIDER = 1
 
 
-def _providers() -> list[tuple[str, Callable[[str], str]]]:
-    """Ordered (display name, call) pairs for the providers that are configured."""
-    s = get_settings()
-    available = {
-        "groq":   (s.groq_api_key,   f"groq-{s.groq_model}",       groq_llm.complete),
-        "gemini": (s.gemini_api_key, s.gemini_model,               gemini.complete),
-        "qwen":   (True,             f"{s.ollama_model}-ollama",   qwen_ollama.complete),
-    }
-    chain = []
-    for name in parse_order(s.llm_order):
-        if name not in available:
-            logger.warning(f"LLM: unknown provider '{name}' in LLM_ORDER — ignored")
-            continue
-        key, label, fn = available[name]
-        if not key:
-            logger.info(f"LLM: {name} skipped (no API key set)")
-            continue
-        chain.append((label, fn))
-    return chain
-
-
-def complete(prompt: str, parse: Callable[[str], Any]) -> tuple[Any, str, bool]:
+def complete(prompt: str, parse) -> tuple:
     """
-    Get a *parsed, validated* LLM result with automatic fallback.
+    Get a parsed, validated LLM result with automatic fallback.
 
     Args:
         prompt: full prompt text.
-        parse:  function(raw_text) -> parsed object. Must raise ValueError
-                (or any exception) if the output is unusable.
+        parse:  function(raw_text) -> parsed object. Must raise on bad output.
 
     Returns:
         (parsed_result, provider_name, fallback_used)
-        fallback_used is True when the first provider in the chain did not produce the result.
     """
-    errors: list[str] = []
+    s = get_settings()
+    errors = []
 
-    for idx, (name, call) in enumerate(_providers()):
+    # ── 1. Groq cloud LLM (fast, smart) ───────────────────────────────────
+    if s.groq_api_key:
         for attempt in range(1 + RETRIES_PER_PROVIDER):
             try:
-                logger.info(f"LLM: {name} attempt {attempt + 1}...")
-                raw = call(prompt)
-            except Exception as e:                       # API/network/import error
-                logger.warning(f"LLM: {name} call failed ({e}). Switching provider.")
-                errors.append(f"{name}: {e}")
-                break                                    # retrying a dead API is pointless
-
-            try:
+                logger.info(f"LLM: Groq attempt {attempt + 1}...")
+                raw = groq_llm.complete(prompt)
                 parsed = parse(raw)
-                logger.info(f"LLM: {name} succeeded.")
-                return parsed, name, idx > 0
-            except Exception as e:                       # bad JSON / bad schema
-                logger.warning(f"LLM: {name} returned unusable output ({e}).")
-                errors.append(f"{name} (bad output): {e}")
-                # loop again -> retry once, then fall through to next provider
+                logger.info("LLM: Groq succeeded.")
+                return parsed, f"groq-{s.groq_model}", False
+            except Exception as e:
+                logger.warning(f"LLM: Groq attempt {attempt + 1} failed ({e}).")
+                errors.append(f"groq: {e}")
+        logger.warning("LLM: Groq exhausted retries. Falling back to Ollama...")
+    else:
+        logger.info("LLM: Groq skipped (no GROQ_API_KEY). Using Ollama.")
+
+    # ── 2. Local Ollama/Qwen fallback ─────────────────────────────────────
+    for attempt in range(1 + RETRIES_PER_PROVIDER):
+        try:
+            logger.info(f"LLM: Ollama attempt {attempt + 1}...")
+            raw = qwen_ollama.complete(prompt)
+            parsed = parse(raw)
+            logger.info("LLM: Ollama succeeded.")
+            return parsed, f"{s.ollama_model}-ollama", True
+        except Exception as e:
+            logger.warning(f"LLM: Ollama attempt {attempt + 1} failed ({e}).")
+            errors.append(f"ollama: {e}")
 
     raise RuntimeError(
         "LLM extraction failed on all providers: " + " | ".join(errors)
-        if errors else "No LLM provider is configured (set GROQ_API_KEY or GEMINI_API_KEY, or run Ollama and add qwen to LLM_ORDER)."
+        if errors else
+        "No LLM provider worked. Check GROQ_API_KEY or ensure Ollama is running."
     )

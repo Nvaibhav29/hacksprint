@@ -1,20 +1,20 @@
 FROM python:3.11-slim
 
-# Install system dependencies (ffmpeg for audio preprocessing)
+# System deps: ffmpeg for audio preprocessing
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install production Python deps (no faster-whisper, no torch — Groq handles ASR)
+COPY requirements-prod.txt .
+RUN pip install --no-cache-dir -r requirements-prod.txt
 
 # Copy app source
 COPY . .
 
-# Railway sets PORT env var — uvicorn must bind to it
+# Railway injects PORT env var
 ENV PORT=8000
 EXPOSE $PORT
 

@@ -20,7 +20,7 @@ def _load_prompt(transcript: str) -> str:
 
 
 def _clean_json(raw: str) -> str:
-    """Strip markdown fences if LLM wraps in ```json ... ```"""
+    """Strip markdown fences if LLM wraps output in ```json ... ```"""
     raw = raw.strip()
     raw = re.sub(r"^```(?:json)?\s*", "", raw)
     raw = re.sub(r"\s*```$", "", raw)
@@ -28,8 +28,7 @@ def _clean_json(raw: str) -> str:
 
 
 def _parse_and_validate(raw: str) -> dict:
-    """Parse LLM output and make sure it has the shape we rely on.
-    Raises ValueError so dual_mode can retry / switch provider."""
+    """Parse LLM output and validate shape. Raises ValueError on bad output."""
     try:
         data = json.loads(_clean_json(raw))
     except json.JSONDecodeError as e:
@@ -61,13 +60,13 @@ def extract(transcript: str) -> dict:
             "language_detected": str,
             "actions": [...],
             "llm_provider": str,
-            "needs_review": bool        # True if any action confidence < threshold
+            "needs_review": bool
         }
     """
     settings = get_settings()
     prompt = _load_prompt(transcript)
 
-    # Fix #6: parsing happens inside dual_mode so bad JSON triggers retry + fallback.
+    # dual_mode.complete returns (parsed_dict, provider_name, fallback_used)
     data, provider, llm_fallback = dual_mode.complete(prompt, _parse_and_validate)
 
     # Normalise required fields
@@ -81,7 +80,7 @@ def extract(transcript: str) -> dict:
     data.setdefault("entities", {"medications": [], "doctors": [], "dates": [], "amounts": []})
     data.setdefault("actions", [])
 
-    # Remove evidence/debug fields the LLM may have written from the prompt rules
+    # Remove internal debug fields the LLM may have added
     for key in ("patient_name_evidence", "patient_id_evidence", "caller_name", "caller_is_patient"):
         data.pop(key, None)
 
@@ -96,6 +95,6 @@ def extract(transcript: str) -> dict:
 
     logger.info(
         f"Extraction complete: {len(data['actions'])} actions, "
-        f"provider={provider}, needs_review={needs_review}"
+        f"provider={provider}, fallback={llm_fallback}, needs_review={needs_review}"
     )
     return data

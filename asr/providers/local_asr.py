@@ -1,17 +1,9 @@
 """
 Local ASR fallback using faster-whisper (CTranslate2).
-Used when the Sarvam API is unavailable or returns an error.
+Used when Groq API key is missing or Groq fails.
 
-Fix #7:
-  * faster-whisper instead of openai-whisper -> no torch download, ~4x faster on CPU;
-  * model size / device / compute type come from config (WHISPER_MODEL etc.);
-  * language comes from the UI dropdown (None = auto-detect);
-  * a short hospital-vocabulary `initial_prompt` (Roman script) improves
-    recognition of terms like billing/appointment/UHID and nudges Roman output.
-
-Note on scripts: Whisper outputs native script (Devanagari/Kannada) for Indian
-languages and cannot be forced to Roman. The LLM prompt copies trigger phrases
-verbatim, so matching works with either script.
+faster-whisper is NOT installed in the production Docker image (Railway uses Groq).
+This module imports it lazily so the app starts fine even without it.
 """
 import threading
 from config import get_settings
@@ -20,7 +12,7 @@ _model = None
 _model_key = None
 _lock = threading.Lock()
 
-# Short Roman-script samples: vocabulary hint + style nudge.
+# Roman-script vocabulary hints — also imported by groq_asr.py for prompt seeding.
 _VOCAB_PROMPTS = {
     "hi": "Namaste, main hospital se bol raha hoon. Aapka naam aur patient ID ya UHID kya hai? Billing, appointment, medicine, refund, prescription, report.",
     "kn": "Namaskara, nanna hesaru. Hospital billing, appointment, medicine, refund, prescription bagge maatadabeku.",
@@ -29,9 +21,16 @@ _VOCAB_PROMPTS = {
 
 
 def _load_model():
-    """Load the model once; reload only if the configured settings change."""
+    """Load faster-whisper model once; reload only if config changes."""
     global _model, _model_key
-    from faster_whisper import WhisperModel          # lazy: only needed on fallback
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError:
+        raise RuntimeError(
+            "faster-whisper is not installed. "
+            "Install it locally with: pip install faster-whisper\n"
+            "On Railway, set GROQ_API_KEY to use Groq ASR instead."
+        )
     s = get_settings()
     key = (s.whisper_model, s.whisper_device, s.whisper_compute_type)
     with _lock:
@@ -47,7 +46,7 @@ def transcribe(audio_path: str, language: str = None) -> dict:
     """
     Args:
         audio_path: Path to preprocessed 16 kHz mono WAV.
-        language:   ISO code ("hi", "kn", "en", ...) or None/"auto" for auto-detect.
+        language:   ISO code ("hi", "kn", "en") or None/"auto" for auto-detect.
     """
     model = _load_model()
 
@@ -57,10 +56,10 @@ def transcribe(audio_path: str, language: str = None) -> dict:
     segments, info = model.transcribe(
         audio_path,
         language=lang,
-        task="transcribe",                 # keep original language
+        task="transcribe",
         initial_prompt=prompt,
         beam_size=5,
-        vad_filter=True,                   # skip silence -> fewer hallucinations
+        vad_filter=True,
         condition_on_previous_text=False,
     )
     transcript = " ".join(seg.text.strip() for seg in segments).strip()

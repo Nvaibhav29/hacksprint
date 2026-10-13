@@ -139,7 +139,17 @@ def run(
             "status": "needs_review" if extracted.get("needs_review") else "routed",
         }
 
-        call_resp = db.table("calls").insert(call_record).execute()
+        # entities / urgent flag need database/migrations/003_structured_fields.sql.
+        # If it has not been run yet, fall back to the original columns so uploads keep working.
+        extra_call_fields = {
+            "entities": extracted.get("entities"),
+            "urgent_clinical_flag": bool(extracted.get("urgent_clinical_flag", False)),
+        }
+        try:
+            call_resp = db.table("calls").insert({**call_record, **extra_call_fields}).execute()
+        except Exception as e:
+            logger.warning(f"Pipeline: saving without entities/urgent flag ({e}). Run migration 003.")
+            call_resp = db.table("calls").insert(call_record).execute()
         call_id = call_resp.data[0]["id"]
         logger.info(f"Pipeline: Call saved with id={call_id}")
 
@@ -147,7 +157,12 @@ def run(
             action["call_id"] = call_id
 
         if routed_actions:
-            db.table("actions").insert(routed_actions).execute()
+            try:
+                db.table("actions").insert(routed_actions).execute()
+            except Exception as e:
+                logger.warning(f"Pipeline: saving actions without owner/due_by ({e}). Run migration 003.")
+                legacy = [{k: v for k, v in a.items() if k not in ("owner", "due_by")} for a in routed_actions]
+                db.table("actions").insert(legacy).execute()
             logger.info(f"Pipeline: {len(routed_actions)} actions saved.")
 
         return {

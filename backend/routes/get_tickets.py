@@ -194,17 +194,34 @@ async def update_call(call_id: str, body: CallUpdate):
 
 # ── Update action status ─────────────────────────────────────────────────────
 class ActionUpdate(BaseModel):
-    status: str       # open | in_progress | resolved
+    status: str | None = None       # open | in_progress | resolved
     assigned_to: str | None = None
+    department: str | None = None   # manual re-route by staff
 
 
 @router.patch("/actions/{action_id}")
 async def update_action(action_id: str, body: ActionUpdate):
     db = get_client()
 
-    update_data = {"status": body.status}
+    update_data: dict = {}
+    if body.status is not None:
+        if body.status not in ("open", "in_progress", "resolved"):
+            raise HTTPException(status_code=400, detail="Invalid status.")
+        update_data["status"] = body.status
     if body.assigned_to is not None:
         update_data["assigned_to"] = body.assigned_to
+    if body.department is not None:
+        # same source of truth the router uses
+        from routing.router import _valid_depts, _load_config
+        if body.department not in _valid_depts():
+            raise HTTPException(status_code=400, detail="Unknown department.")
+        update_data["department"] = body.department
+        if body.assigned_to is None:
+            update_data["assigned_to"] = (
+                _load_config()["departments"][body.department].get("default_assignee", body.department)
+            )
+    if not update_data:
+        raise HTTPException(status_code=400, detail="Nothing to update.")
 
     resp = db.table("actions").update(update_data).eq("id", action_id).execute()
     if not resp.data:

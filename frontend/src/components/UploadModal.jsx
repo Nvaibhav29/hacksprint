@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { uploadCall } from '../services/api'
 import PipelineStepper from './PipelineStepper'
+import { IconUpload } from './Icons'
 
 export default function UploadModal({ onClose, onDone }) {
   const [dragging, setDragging] = useState(false)
@@ -62,12 +63,13 @@ export default function UploadModal({ onClose, onDone }) {
   return (
     <div className="modal-backdrop">
       <div className="modal" role="dialog" aria-modal="true" aria-label="Process new call">
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 20 }}>
-          <h2 style={{ fontFamily: 'var(--font-head)', fontSize: 15, fontWeight: 700 }}>
-            Process New Call
-          </h2>
+        <div className="modal-head">
+          <h2 className="modal-title">Process a call</h2>
           <button className="modal-close" onClick={onClose} aria-label="Close" disabled={loading}>×</button>
         </div>
+        <p className="modal-lede">
+          Upload a recording. It is transcribed, summarised, and each action is routed to the right department.
+        </p>
 
         <div
           className={`upload-zone ${dragging ? 'dragging' : ''}`}
@@ -76,18 +78,13 @@ export default function UploadModal({ onClose, onDone }) {
           onDrop={handleDrop}
           onClick={() => inputRef.current.click()}
         >
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
-            stroke="var(--c-text-muted)" strokeWidth="1.5">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="17 8 12 3 7 8"/>
-            <line x1="12" y1="3" x2="12" y2="15"/>
-          </svg>
+          <IconUpload style={{ color: 'var(--ink-3)' }} />
           {file
             ? <p><strong>{file.name}</strong> ({(file.size / 1024 / 1024).toFixed(2)} MB)</p>
             : <p>Drop audio file here or <strong>click to browse</strong></p>
           }
-          <p className="text-sm" style={{ marginTop: 4 }}>
-            Supports WAV, MP3, M4A, OGG, FLAC — max 50 MB
+          <p className="text-sm text-muted" style={{ marginTop: 4 }}>
+            WAV, MP3, M4A, OGG, FLAC or WEBM, up to 50 MB
           </p>
           <input ref={inputRef} type="file"
             accept=".wav,.mp3,.m4a,.ogg,.flac,.webm"
@@ -113,7 +110,7 @@ export default function UploadModal({ onClose, onDone }) {
           <div style={{ marginTop: 18 }}>
             <PipelineStepper uploadPct={progress} job={job} failed={failed} elapsed={elapsed} />
             {!failed && (
-              <p style={{ fontSize: 12, color: 'var(--c-text-muted)', marginTop: 10 }}>
+              <p className="text-sm text-muted" style={{ marginTop: 10 }}>
                 Longer calls take longer. You can keep using the dashboard in another tab.
               </p>
             )}
@@ -121,14 +118,14 @@ export default function UploadModal({ onClose, onDone }) {
         )}
 
         {error && (
-          <p style={{ marginTop: 12, fontSize: 12, color: 'var(--c-danger)' }}>{error}</p>
+          <p className="err" role="alert">{error}</p>
         )}
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 20, justifyContent: 'flex-end' }}>
+        <div className="modal-foot">
           <button className="btn btn-outline" onClick={onClose} disabled={loading}>Cancel</button>
           <button className="btn btn-primary" onClick={handleSubmit}
             disabled={!file || loading}>
-            {loading ? <><div className="spinner spinner-sm spinner-light" /> Processing</> : failed ? 'Try again' : 'Process Call'}
+            {loading ? <><div className="spinner spinner-sm spinner-light" /> Processing</> : failed ? 'Try again' : 'Process call'}
           </button>
         </div>
       </div>

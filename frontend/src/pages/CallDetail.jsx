@@ -1,55 +1,35 @@
-import { useState, useEffect, useMemo } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import Sidebar from '../components/Sidebar'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import { useParams } from 'react-router-dom'
+import Layout from '../components/Layout'
 import ActionCard from '../components/ActionCard'
+import { IconCopy, IconDownload } from '../components/Icons'
 import { getCall, updateCall } from '../services/api'
 import { URGENT_DEPARTMENTS } from '../departments'
+import {
+  fmtId, fmtDuration, fmtDateTime, cap, OWNER, OWNER_ORDER, entityRows,
+  buildNote, copyText, downloadText,
+} from '../lib/format'
 
-function sentimentTag(s) {
-  const map = { frustrated: 'tag tag-red', neutral: 'tag tag-gray', satisfied: 'tag tag-green' }
-  return map[s] || 'tag tag-gray'
-}
+const SPEAKER_CYCLE = [null, 'PATIENT', 'STAFF']
+const esc = t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-function fmtDuration(s) {
-  if (!s) return '—'
-  const m = Math.floor(s / 60), sec = s % 60
-  return `${m}:${String(sec).padStart(2, '0')}`
-}
-
-function fmtDatetime(iso) {
-  return new Date(iso).toLocaleString('en-IN', {
-    day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false,
-  })
-}
-
-function fmtId(id) {
-  return '#' + id.slice(0, 6).toUpperCase()
-}
-
-// Highlight trigger phrases in transcript line.
-// Fix #8: the old code called regex.test() on a /g regex, which keeps state
-// (lastIndex) between calls and skipped some matches. String.split with a
-// capture group puts every match at an odd index, so no .test() is needed.
-function HighlightText({ text, triggers = [] }) {
-  const clean = [...new Set(triggers.map(t => (t || '').trim()).filter(Boolean))]
-    .sort((a, b) => b.length - a.length)          // longest first
+// Underline every trigger phrase; the one for the hovered action is shown strongly.
+// String.split with a capture group puts each match at an odd index (no stateful /g regex).
+function Highlight({ text, triggers, active }) {
+  const clean = [...new Set(triggers.map(t => (t || '').trim()).filter(Boolean))].sort((a, b) => b.length - a.length)
   if (!clean.length) return <>{text}</>
-  const pattern = clean.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
-  const parts = text.split(new RegExp(`(${pattern})`, 'i'))
+  const parts = text.split(new RegExp(`(${clean.map(esc).join('|')})`, 'i'))
+  const act = (active || '').trim().toLowerCase()
   return (
     <>
-      {parts.map((p, i) =>
-        i % 2 === 1 ? <u key={i}>{p}</u> : <span key={i}>{p}</span>
-      )}
+      {parts.map((p, i) => i % 2 === 1
+        ? <mark key={i} className={act && p.toLowerCase() === act ? 'live' : ''}>{p}</mark>
+        : <span key={i}>{p}</span>)}
     </>
   )
 }
 
-
-const SPEAKER_CYCLE = [null, 'PATIENT', 'STAFF']
-
-// ASR gives no speaker labels, so the transcript is one paragraph. Split it into
-// readable turns (sentence boundaries, tiny fragments merged into the previous line).
+// ASR gives no speaker labels, so split the paragraph into readable turns.
 function splitTurns(raw = '') {
   const out = []
   raw.split('\n').map(l => l.trim()).filter(Boolean).forEach(block => {
@@ -65,7 +45,6 @@ function splitTurns(raw = '') {
 
 function parseTranscript(raw = '') {
   if (!raw) return { lines: [], tagged: false }
-  // Transcripts that already carry [PATIENT]/[STAFF] markers keep them.
   if (/\[(PATIENT|STAFF)\]/i.test(raw)) {
     const parts = raw.split(/(\[(?:PATIENT|STAFF)\])/gi).filter(Boolean)
     const lines = []
@@ -82,44 +61,68 @@ function parseTranscript(raw = '') {
   return { lines: splitTurns(raw), tagged: false }
 }
 
-const isUnresolvedClinicalHigh = a =>
-  URGENT_DEPARTMENTS.includes(a.department) && a.priority === 'high' && a.status !== 'resolved'
+const isUrgent = a => URGENT_DEPARTMENTS.includes(a.department) && a.priority === 'high' && a.status !== 'resolved'
 
-export default function CallDetail() {
-  const { id } = useParams()
-  const navigate = useNavigate()
+function Body({ id }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [statusOverrides, setStatusOverrides] = useState({})   // action id -> status changed on this page
+  const [patches, setPatches] = useState({})          // action id -> fields changed on this page
   const [editing, setEditing] = useState(false)
   const [nameDraft, setNameDraft] = useState('')
   const [headerError, setHeaderError] = useState('')
   const [headerSaving, setHeaderSaving] = useState(false)
   const [verifiedLocal, setVerifiedLocal] = useState(false)
-  const [speakerTags, setSpeakerTags] = useState({})           // line index -> PATIENT | STAFF (manual)
+  const [speakerTags, setSpeakerTags] = useState({})
+  const [activeTrigger, setActiveTrigger] = useState(null)
+  const [toast, setToast] = useState('')
+  const transcriptRef = useRef(null)
 
   useEffect(() => {
-    getCall(id)
-      .then(setData)
-      .catch(() => setError('Call not found or backend unavailable.'))
-      .finally(() => setLoading(false))
+    getCall(id).then(setData).catch(() => setError('Call not found or backend unavailable.')).finally(() => setLoading(false))
   }, [id])
 
-  // manual speaker tags are remembered per call in this browser
   useEffect(() => {
     try { setSpeakerTags(JSON.parse(localStorage.getItem(`speakers:${id}`) || '{}')) } catch { setSpeakerTags({}) }
   }, [id])
 
   const call = data?.call
-  const actions = (data?.actions || []).map(a => (statusOverrides[a.id] ? { ...a, status: statusOverrides[a.id] } : a))
+  const actions = (data?.actions || []).map(a => (patches[a.id] ? { ...a, ...patches[a.id] } : a))
   const verified = !!call?.patient_verified || verifiedLocal
-  const urgentActions = actions.filter(isUnresolvedClinicalHigh)
+  const urgentActions = actions.filter(isUrgent)
   const hasClinical = actions.some(a => URGENT_DEPARTMENTS.includes(a.department))
   const urgent = urgentActions.length > 0 || (!!call?.urgent_clinical_flag && !hasClinical)
   const triggers = actions.map(a => a.trigger_phrase).filter(Boolean)
-  const { lines: parsedLines, tagged } = useMemo(() => parseTranscript(call?.raw_transcript), [call?.raw_transcript])
-  const transcriptLines = parsedLines.map((l, i) => ({ ...l, speaker: tagged ? l.speaker : (speakerTags[i] || null) }))
+  const entities = entityRows(call?.entities)
+
+  const { lines: parsed, tagged } = useMemo(() => parseTranscript(call?.raw_transcript), [call?.raw_transcript])
+  const lines = parsed.map((l, i) => ({ ...l, speaker: tagged ? l.speaker : (speakerTags[i] || null) }))
+  const isHit = text => !!activeTrigger && text.toLowerCase().includes(activeTrigger.trim().toLowerCase())
+
+  // bring the evidence line into view when an action is hovered
+  useEffect(() => {
+    if (!activeTrigger || !transcriptRef.current) return
+    const el = transcriptRef.current.querySelector('.t-line.has-hit')
+    if (!el) return
+    const box = transcriptRef.current
+    const top = el.offsetTop - box.offsetTop
+    if (top < box.scrollTop || top + el.offsetHeight > box.scrollTop + box.clientHeight)
+      box.scrollTo({ top: Math.max(0, top - 60), behavior: 'smooth' })
+  }, [activeTrigger])
+
+  const groups = useMemo(() => {
+    const hasOwner = actions.some(a => OWNER[a.owner])
+    if (!hasOwner) return [{ key: 'all', title: 'Actions', items: actions }]
+    return OWNER_ORDER
+      .map(k => ({ key: k, title: OWNER[k].group, items: actions.filter(a => (OWNER[a.owner] ? a.owner : 'patient_request') === k) }))
+      .filter(g => g.items.length)
+  }, [actions])
+
+  const routeCounts = useMemo(() => {
+    const m = {}
+    actions.forEach(a => { m[a.department] = (m[a.department] || 0) + 1 })
+    return Object.entries(m)
+  }, [actions])
 
   const cycleSpeaker = i => {
     const cur = speakerTags[i] || null
@@ -127,17 +130,15 @@ export default function CallDetail() {
     const updated = { ...speakerTags }
     if (next) updated[i] = next; else delete updated[i]
     setSpeakerTags(updated)
-    try { localStorage.setItem(`speakers:${id}`, JSON.stringify(updated)) } catch { /* storage full/blocked: tags just won't persist */ }
+    try { localStorage.setItem(`speakers:${id}`, JSON.stringify(updated)) } catch { /* tags just won't persist */ }
   }
 
   const saveHeader = async body => {
-    setHeaderSaving(true)
-    setHeaderError('')
+    setHeaderSaving(true); setHeaderError('')
     try {
       const res = await updateCall(id, body)
       setData(d => ({ ...d, call: { ...d.call, ...res.updated } }))
-      setVerifiedLocal(true)
-      setEditing(false)
+      setVerifiedLocal(true); setEditing(false)
     } catch (err) {
       setHeaderError(err.response?.data?.detail || 'Could not save. Please try again.')
     } finally {
@@ -145,236 +146,174 @@ export default function CallDetail() {
     }
   }
 
+  const flash = msg => { setToast(msg); setTimeout(() => setToast(''), 2400) }
+  const copyNote = async () => flash((await copyText(buildNote(call, actions))) ? 'Call note copied' : 'Could not copy. Select the text manually.')
+  const downloadJson = () =>
+    downloadText(`call-${fmtId(call.id).slice(1)}.json`, JSON.stringify({ call: { ...call, raw_transcript: undefined }, actions }, null, 2), 'application/json')
+
+  if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}><div className="spinner" /></div>
+  if (error) return <div className="banner" role="alert">{error}</div>
+  if (!call) return null
+
+  const conf = Math.round((call.confidence_score ?? 0.8) * 100)
 
   return (
-    <div className="app-shell">
-      <Sidebar />
-      <div className="main-area">
-        {/* Topbar */}
-        <div className="topbar">
-          <div className="topbar-breadcrumb">
-            <span
-              style={{ cursor: 'pointer', color: 'var(--c-primary)' }}
-              onClick={() => navigate('/dashboard')}
-            >Dashboard</span>
-            <span> / </span>
-            <strong>{call ? fmtId(call.id) : '…'}</strong>
-          </div>
-          {call && (
-            <div className="topbar-meta" style={{ display: 'flex', gap: 12, alignItems: 'center',
-              fontSize: 12, color: 'var(--c-text-muted)' }}>
-              <span>Duration {fmtDuration(call.duration_seconds)}</span>
-              <span>ASR: {call.asr_provider}</span>
-              <span>LLM: {call.llm_provider}</span>
+    <>
+      {urgent && (
+        <div className="urgent-banner" role="alert">
+          <strong>Urgent clinical attention</strong>
+          <span>{urgentActions.length ? urgentActions.map(a => a.action_text).join(' · ') : 'The AI flagged this call as clinically urgent.'}</span>
+        </div>
+      )}
+
+      <section className="panel patient-head">
+        <div className="patient-avatar" aria-hidden="true">{(call.patient_name || '?').trim().charAt(0).toUpperCase()}</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {editing ? (
+            <div className="name-edit">
+              <input className="field-input" autoFocus value={nameDraft} maxLength={120} placeholder="Patient name" aria-label="Patient name"
+                onChange={e => setNameDraft(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') saveHeader({ patient_name: nameDraft, patient_verified: true })
+                  if (e.key === 'Escape') setEditing(false)
+                }} />
+              <button className="btn btn-primary btn-sm" disabled={headerSaving}
+                onClick={() => saveHeader({ patient_name: nameDraft, patient_verified: true })}>{headerSaving ? 'Saving…' : 'Save'}</button>
+              <button className="btn btn-sm" disabled={headerSaving} onClick={() => { setEditing(false); setHeaderError('') }}>Cancel</button>
             </div>
+          ) : (
+            <div className="patient-name-row">
+              <span className="patient-name">{call.patient_name || 'Name not detected'}</span>
+              {verified
+                ? <span className="tag tag-green">Verified</span>
+                : <span className="tag tag-amber" title="The name comes from speech recognition and can be wrong">{call.patient_name ? 'Please verify' : 'Add name'}</span>}
+              <button className="link-btn" onClick={() => { setNameDraft(call.patient_name || ''); setEditing(true); setHeaderError('') }}>Edit</button>
+              {!verified && call.patient_name && (
+                <button className="link-btn" disabled={headerSaving} onClick={() => saveHeader({ patient_verified: true })}>Confirm name</button>
+              )}
+            </div>
+          )}
+          <div className="meta-line">
+            <span>Patient ID <b className="mono">{call.patient_id || 'not given'}</b></span>
+            <span>Call <b className="mono">{fmtId(call.id)}</b></span>
+            <span>{fmtDateTime(call.created_at)}</span>
+            <span>Length <b>{fmtDuration(call.duration_seconds)}</b></span>
+            {call.language_detected && <span>Language <b>{call.language_detected}</b></span>}
+          </div>
+          {headerError && <p className="err">{headerError}</p>}
+        </div>
+        <div className="head-actions">
+          <button className="btn btn-sm" onClick={copyNote}><IconCopy /> Copy note</button>
+          <button className="btn btn-sm" onClick={downloadJson}><IconDownload /> JSON</button>
+        </div>
+      </section>
+
+      {call.needs_review && (
+        <div className="banner">At least one action has low confidence. Check the evidence quote before acting on it.</div>
+      )}
+
+      <div className="call-grid">
+        <div className="stack">
+          <section className="panel">
+            <div className="panel-head"><h2 className="panel-title">Call summary</h2></div>
+            <div className="panel-body">
+              <p className="brief-summary">{call.ai_summary || 'No summary was generated for this call.'}</p>
+              <dl className="brief-stats">
+                <div className="brief-stat">
+                  <dt>Caller sentiment</dt>
+                  <dd><span className={`sent sent-${call.sentiment || 'neutral'}`}>{call.sentiment || 'unknown'}</span></dd>
+                </div>
+                <div className="brief-stat">
+                  <dt>Extraction confidence</dt>
+                  <dd className="conf-row">
+                    <span className="conf-track"><span className={`conf-fill ${conf < 70 ? 'low' : ''}`} style={{ width: `${conf}%`, display: 'block' }} /></span>
+                    <span className="conf-label">{conf}%</span>
+                  </dd>
+                </div>
+                <div className="brief-stat">
+                  <dt>Processed with</dt>
+                  <dd className="text-sm">{call.asr_provider || '—'} <span className="text-muted">→</span> {call.llm_provider || '—'}</dd>
+                </div>
+              </dl>
+            </div>
+          </section>
+
+          <section>
+            <div className="section-head">
+              <h2 className="section-title">Actions and routing</h2>
+              <span className="section-sub">{actions.length} extracted</span>
+            </div>
+            {routeCounts.length > 0 && (
+              <div className="route-strip" style={{ marginBottom: 14 }}>
+                <span>Routed to</span>
+                {routeCounts.map(([d, n]) => (
+                  <span key={d} className="tag tag-accent">{d}{n > 1 ? ` ×${n}` : ''}</span>
+                ))}
+              </div>
+            )}
+            {actions.length === 0
+              ? <div className="panel"><div className="empty"><h3>No actions found</h3>Nothing in this call needs a follow-up.</div></div>
+              : groups.map(g => (
+                  <div className="action-group" key={g.key}>
+                    {g.key !== 'all' && <div className="action-group-head"><h3>{g.title}</h3><span>{g.items.length}</span></div>}
+                    {g.items.map(a => (
+                      <ActionCard key={a.id} action={a} hot={!!activeTrigger && a.trigger_phrase === activeTrigger}
+                        onHover={setActiveTrigger}
+                        onChange={(aid, patch) => setPatches(p => ({ ...p, [aid]: { ...p[aid], ...patch } }))} />
+                    ))}
+                  </div>
+                ))}
+          </section>
+
+          {entities.length > 0 && (
+            <section className="panel">
+              <div className="panel-head"><h2 className="panel-title">Key details mentioned</h2></div>
+              <dl className="panel-body entities">
+                {entities.map(e => (
+                  <div key={e.key} style={{ display: 'contents' }}>
+                    <dt>{e.label}</dt>
+                    <dd className="chips">{e.values.map(v => <span key={v} className="tag tag-outline">{v}</span>)}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
           )}
         </div>
 
-        <div className="page-content">
-          {loading && (
-            <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
-              <div className="spinner" />
+        <div className="sticky-col">
+          <section className="panel">
+            <div className="panel-head">
+              <h2 className="panel-title">Transcript</h2>
+              <span className="panel-sub">{lines.length} lines · highlights show evidence</span>
             </div>
-          )}
-          {error && <div className="review-banner">{error}</div>}
-
-          {call && (
-            <>
-              {urgent && (
-                <div className="urgent-banner" role="alert">
-                  <strong>Urgent clinical attention</strong>
-                  <span>
-                    {urgentActions.length
-                      ? urgentActions.map(a => a.action_text).join(' · ')
-                      : 'The AI flagged this call as clinically urgent.'}
-                  </span>
-                </div>
-              )}
-
-              {/* Patient header */}
-              <div className="card card-body patient-header" style={{ marginBottom: 16 }}>
-                <div className="patient-avatar">{(call.patient_name || '?').trim().charAt(0).toUpperCase()}</div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  {editing ? (
-                    <div className="name-edit">
-                      <input className="field-input" autoFocus value={nameDraft} maxLength={120}
-                        placeholder="Patient name"
-                        aria-label="Patient name"
-                        onChange={e => setNameDraft(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') saveHeader({ patient_name: nameDraft, patient_verified: true })
-                          if (e.key === 'Escape') setEditing(false)
-                        }} />
-                      <button className="btn btn-primary btn-sm" disabled={headerSaving}
-                        onClick={() => saveHeader({ patient_name: nameDraft, patient_verified: true })}>
-                        {headerSaving ? 'Saving…' : 'Save'}
-                      </button>
-                      <button className="btn btn-outline btn-sm" disabled={headerSaving}
-                        onClick={() => { setEditing(false); setHeaderError('') }}>Cancel</button>
+            {!tagged && lines.length > 0 && (
+              <p className="transcript-hint">Speech recognition does not label speakers. Click a label to mark who is speaking.</p>
+            )}
+            <div className="transcript" ref={transcriptRef}>
+              {lines.length === 0
+                ? <p className="empty">No transcript.</p>
+                : lines.map((l, i) => (
+                    <div key={l.lineNum} className={`t-line ${isHit(l.text) ? 'has-hit' : ''}`}>
+                      <span className="t-num">{String(l.lineNum).padStart(2, '0')}</span>
+                      {tagged
+                        ? <span className={`t-speaker ${l.speaker === 'PATIENT' ? 'patient' : 'staff'}`}>{cap(l.speaker.toLowerCase())}</span>
+                        : <button className={`t-speaker ${l.speaker === 'PATIENT' ? 'patient' : l.speaker === 'STAFF' ? 'staff' : ''}`}
+                            onClick={() => cycleSpeaker(i)} title="Click to set speaker: Patient, Staff, none">
+                            {l.speaker ? cap(l.speaker.toLowerCase()) : 'Speaker'}
+                          </button>}
+                      <span className="t-text"><Highlight text={l.text} triggers={triggers} active={activeTrigger} /></span>
                     </div>
-                  ) : (
-                    <div className="patient-name-row">
-                      <span className="patient-name">{call.patient_name || 'Name not detected'}</span>
-                      <button className="link-btn"
-                        onClick={() => { setNameDraft(call.patient_name || ''); setEditing(true); setHeaderError('') }}>
-                        Edit
-                      </button>
-                      {verified
-                        ? <span className="tag tag-green">Verified</span>
-                        : <span className="tag tag-amber" title="The name comes from speech recognition and can be wrong">
-                            {call.patient_name ? 'Please verify' : 'Add name'}
-                          </span>}
-                      {!verified && call.patient_name && (
-                        <button className="link-btn" disabled={headerSaving}
-                          onClick={() => saveHeader({ patient_verified: true })}>
-                          Confirm name
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  <div className="patient-meta">
-                    <span>Patient ID: <span className="mono">{call.patient_id || '—'}</span></span>
-                  </div>
-                  {headerError && <p style={{ marginTop: 6, fontSize: 12, color: 'var(--c-danger)' }}>{headerError}</p>}
-                </div>
-              </div>
-
-              {/* Call header card */}
-              <div className="card card-body" style={{ marginBottom: 20 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                  <span className="mono" style={{ fontSize: 22, fontWeight: 700 }}>
-                    {fmtId(call.id)}
-                  </span>
-                  <span style={{ fontSize: 13, color: 'var(--c-text-muted)' }}>
-                    {fmtDatetime(call.created_at)}
-                  </span>
-                  {call.language_detected && (
-                    <span className="tag tag-outline">{call.language_detected}</span>
-                  )}
-                  <span className={sentimentTag(call.sentiment)}
-                    style={{ textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700, fontSize: 11 }}>
-                    {call.sentiment || 'unknown'}
-                  </span>
-                  {call.needs_review && (
-                    <span className="tag tag-amber">Needs Review</span>
-                  )}
-                </div>
-
-                {/* Confidence + speaker bars */}
-                <div className="grid-2" style={{ marginTop: 14 }}>
-                  <div>
-                    <div style={{ fontSize: 11, color: 'var(--c-text-muted)', marginBottom: 5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                      Extraction Confidence
-                    </div>
-                    <div className="conf-row">
-                      <div className="conf-track">
-                        <div className="conf-fill"
-                          style={{ width: `${Math.round((call.confidence_score || 0.8) * 100)}%` }} />
-                      </div>
-                      <span className="conf-label">
-                        {Math.round((call.confidence_score || 0.8) * 100)}%
-                      </span>
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 11, color: 'var(--c-text-muted)', marginBottom: 5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                      {actions.length} Action{actions.length !== 1 ? 's' : ''} Extracted
-                    </div>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      {['high', 'medium', 'low'].map(p => {
-                        const count = actions.filter(a => a.priority === p).length
-                        return count ? (
-                          <span key={p} className={`tag tag-${p === 'high' ? 'red' : p === 'medium' ? 'amber' : 'gray'}`}>
-                            {count} {p}
-                          </span>
-                        ) : null
-                      })}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {call.needs_review && (
-                <div className="review-banner">
-                  One or more actions have low confidence. Review and verify before acting.
-                </div>
-              )}
-
-              {/* Two-col */}
-              <div className="two-col">
-                {/* Left: Summary + Actions */}
-                <div>
-                  {/* AI Summary */}
-                  <div className="section-header">
-                    <span className="section-title">AI Summary</span>
-                  </div>
-                  <div className="card card-body" style={{ marginBottom: 20 }}>
-                    <p style={{ fontSize: 13, color: 'var(--c-text-primary)', lineHeight: 1.7 }}>
-                      {call.ai_summary || 'No summary generated.'}
-                    </p>
-                  </div>
-
-                  {/* Extracted Actions */}
-                  <div className="section-header">
-                    <span className="section-title">Extracted Actions</span>
-                    <span className="section-sub">{actions.length} items</span>
-                  </div>
-                  {actions.length === 0
-                    ? <div className="card card-body">
-                        <p style={{ color: 'var(--c-text-muted)', fontSize: 13 }}>
-                          No actions extracted.
-                        </p>
-                      </div>
-                    : actions.map(a => (
-                        <ActionCard key={a.id} action={a}
-                          onUpdate={(aid, st) => setStatusOverrides(o => ({ ...o, [aid]: st }))} />
-                      ))
-                  }
-                </div>
-
-                {/* Right: Transcript */}
-                <div>
-                  <div className="section-header">
-                    <span className="section-title">Full Transcript</span>
-                    {call.language_detected && (
-                      <span className="tag tag-outline" style={{ fontSize: 10 }}>
-                        {call.language_detected}
-                      </span>
-                    )}
-                  </div>
-                  <div className="card">
-                    <div className="transcript-block">
-                      {!tagged && transcriptLines.length > 0 && (
-                        <p className="transcript-hint">
-                          Speech recognition doesn't label speakers. Click a line's label to mark who is speaking.
-                        </p>
-                      )}
-                      {transcriptLines.length === 0
-                        ? <p style={{ color: 'var(--c-text-muted)', fontSize: 13 }}>No transcript.</p>
-                        : transcriptLines.map((l, i) => (
-                            <div key={l.lineNum} className={`transcript-line ${l.speaker ? l.speaker.toLowerCase() : ''}`}>
-                              <span className="t-line-num">{String(l.lineNum).padStart(2, '0')}</span>
-                              {tagged
-                                ? <span className={`t-speaker ${l.speaker === 'PATIENT' ? 'patient' : 'staff'}`}>[{l.speaker}]</span>
-                                : <button className={`t-speaker t-speaker-btn ${l.speaker === 'PATIENT' ? 'patient' : 'staff'}`}
-                                    onClick={() => cycleSpeaker(i)}
-                                    title="Click to set speaker: Patient / Staff / none">
-                                    {l.speaker ? `[${l.speaker}]` : '[ — ]'}
-                                  </button>}
-                              <span className="t-text">
-                                <HighlightText text={l.text} triggers={triggers} />
-                              </span>
-                            </div>
-                          ))
-                      }
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
+                  ))}
+            </div>
+          </section>
         </div>
       </div>
-    </div>
+      {toast && <div className="toast" role="status">{toast}</div>}
+    </>
   )
+}
+
+export default function CallDetail() {
+  const { id } = useParams()
+  return <Layout back={{ to: '/calls', label: 'All calls' }} title="Call brief" showLive={false}><Body id={id} /></Layout>
 }

@@ -36,6 +36,16 @@ def _validate_department(dept: str) -> str:
     return "Admin"
 
 
+def _clean_owner(value) -> str:
+    """patient_request | staff_commitment | follow_up (anything else -> patient_request)."""
+    v = str(value or "").strip().lower()
+    if "staff" in v or "commit" in v:
+        return "staff_commitment"
+    if "follow" in v:
+        return "follow_up"
+    return "patient_request"
+
+
 def route(extracted: dict) -> list[dict]:
     """
     Enrich extracted actions with routing metadata.
@@ -85,6 +95,9 @@ def route(extracted: dict) -> list[dict]:
             "confidence": confidence,
             "assigned_to": assignee,
             "status": "open",
+            # request vs. commitment, and any deadline stated on the call
+            "owner": _clean_owner(raw.get("owner")),
+            "due_by": (str(raw.get("due_by")).strip()[:120] or None) if raw.get("due_by") else None,
         })
 
     return enriched

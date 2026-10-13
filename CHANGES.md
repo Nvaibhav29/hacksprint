@@ -47,3 +47,21 @@ One `GROQ_API_KEY` now powers both steps (no new Python package; uses httpx).
 | Stepper | The `fallback` tag now comes from the backend (true if the first configured provider didn't run) | `pipeline/orchestrator.py`, `backend/jobs.py`, `PipelineStepper.jsx` |
 
 Notes: Whisper returns native script (Devanagari / Kannada), not Roman like Sarvam's `translit` mode. Trigger phrases are copied verbatim in the transcript's own script, so highlighting still works. Free-tier Groq has rate limits; a 429 falls through to the next provider. No database change.
+
+
+# UI redesign + structured output (this patch)
+
+**Look and feel.** New design system in `frontend/src/index.css`: warm paper neutrals, one teal accent, Source Serif 4 for titles and numbers, IBM Plex Sans for UI, IBM Plex Mono for IDs. Hairline borders, no gradients or glow. Priority is shown as a left rule plus a word instead of coloured pills everywhere. Responsive down to phone width.
+
+| Area | Change | Files |
+|---|---|---|
+| Shell | One `Layout` (sidebar, title bar, live badge, upload dialog) used by every page | `components/Layout.jsx`, `Sidebar.jsx`, `Icons.jsx` |
+| Overview | KPI strip (calls today, unresolved, high priority, needs review, avg length), **Needs attention** queue of open high-priority actions, department load with urgent share, sentiment mix, "how a call becomes work" empty state | `pages/Dashboard.jsx` |
+| Call brief | Summary, then actions **grouped as Patient requests / Staff commitments / Follow-ups**, each with due date, evidence quote and confidence. Hover an action and its evidence is highlighted in the transcript. **Copy note** (paste into the hospital system) and JSON download | `pages/CallDetail.jsx`, `components/ActionCard.jsx`, `lib/format.js` |
+| Re-route | Staff can move an action to another department; assignee updates to that team's default | `ActionCard.jsx`, `PATCH /api/actions/{id}` (`department` field) |
+| Queue board | Search, "High priority only", owner label and due date on tickets | `pages/Board.jsx` |
+| All calls | Summary column, routed-to chips, CSV export of the current page | `pages/AllCalls.jsx` |
+
+**Backend: keep what the LLM already extracts.** `owner` (patient_request / staff_commitment / follow_up), `due_by`, `entities` and the urgent flag were extracted but dropped before saving. They are now saved.
+Run `database/migrations/003_structured_fields.sql` in Supabase to enable this. If you don't, uploads still work (the save falls back to the old columns) and the UI simply hides those fields.
+Files: `routing/router.py`, `pipeline/orchestrator.py`, `llm/prompts/action_extraction.txt`, `backend/routes/get_tickets.py`.

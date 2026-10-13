@@ -84,7 +84,8 @@ STEP 3 — EXTRACT PATIENT ID
 
 STEP 4 — EXTRACT ACTIONS
 - One action = one task for one department. Never merge two tasks.
-- Capture both what the patient requests AND what staff commit to do (owner = "staff_commitment").
+- Capture both what the patient requests AND what staff commit to do.
+- owner must be exactly one of: "patient_request" (something the patient asks for or complains about), "staff_commitment" (something staff promise to do), "follow_up" (a callback, reminder or later check that either side agrees to).
 - Do not invent actions not in the transcript.
 - trigger_phrase: shortest exact quote from the transcript supporting the action, copied verbatim in the transcript's own script.
 - due_by: only if a deadline is stated in the call, else null.

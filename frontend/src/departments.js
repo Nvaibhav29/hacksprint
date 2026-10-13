@@ -12,3 +12,6 @@ export const DEPT_BAR_COLOR = {
   'Lab Reports': 'bar-green', Radiology: 'bar-slate', Clinical: 'bar-clinical',
   Admin: 'bar-gray',
 }
+
+// Daily appointment capacity shown on the appointment bar
+export const APPOINTMENT_CAPACITY = 100

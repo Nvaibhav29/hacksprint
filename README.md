@@ -22,6 +22,8 @@ cp .env.example .env
 ### 2. Run Supabase schema
 Open `database/schema.sql` and run it in your Supabase SQL editor.
 
+Also run `database/migrations/003_structured_fields.sql` (recommended: stores action owner, due date and key details).
+
 ### 3. Backend
 ```bash
 pip install -r requirements.txt

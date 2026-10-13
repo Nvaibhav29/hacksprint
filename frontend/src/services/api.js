@@ -61,5 +61,6 @@ export const uploadCall = async (file, { language = 'auto', onUploadProgress, on
 }
 
 // ── Actions ────────────────────────────────────────────────────────────────
-export const updateAction = (id, status, assigned_to) =>
-  api.patch(`/actions/${id}`, { status, assigned_to }).then(r => r.data)
+// patch: any of { status, assigned_to, department }
+export const updateAction = (id, patch) =>
+  api.patch(`/actions/${id}`, patch).then(r => r.data)

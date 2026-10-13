@@ -1,0 +1,14 @@
+tunnel: medroute-local-llm
+credentials-file: ~/.cloudflared/medroute-local-llm.json
+
+ingress:
+  # Expose local Ollama so Railway backend can reach your local GPU
+  - hostname: llm.YOUR-DOMAIN.workers.dev
+    service: http://localhost:11434
+
+  # Expose local Whisper ASR if needed
+  - hostname: asr.YOUR-DOMAIN.workers.dev
+    service: http://localhost:8001
+
+  # Catch-all required by cloudflared
+  - service: http_status:404

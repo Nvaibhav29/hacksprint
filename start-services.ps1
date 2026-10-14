@@ -39,7 +39,7 @@ if (-not $existingProxy) {
 if (-not (Get-Process -Name "ngrok" -ErrorAction SilentlyContinue)) {
     Write-Host "Starting ngrok tunnel..."
     Start-Process -FilePath $ngrokExe `
-        -ArgumentList "start proxy --config `"$ngrokConf`"" `
+        -ArgumentList "http 8888 --domain=nutrient-green-sip.ngrok-free.dev" `
         -WindowStyle Minimized
 }
 

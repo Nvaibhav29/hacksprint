@@ -70,6 +70,42 @@ cloudflared tunnel run --config cloudflare-tunnel.yml medroute-local-llm
 
 ---
 
+## 2b. Laptop ASR (Whisper) through the same tunnel
+
+If Groq speech-to-text fails (rate limit, outage), the Railway backend sends the audio to Whisper
+running on your laptop. `asr_server.py` also forwards Ollama calls, so **one tunnel serves both**.
+
+ASR order on Railway: **Groq -> laptop Whisper -> (nothing else; faster-whisper is not in the image)**.
+
+**One-time setup**
+1. Laptop: `pip install -r requirements.txt`
+2. Pick a secret: `python -c "import secrets; print(secrets.token_urlsafe(32))"`
+3. Laptop `.env`: `ASR_TOKEN=<secret>`
+4. Railway Variables: `ASR_TOKEN=<same secret>` and `ASR_REMOTE_URL=https://<your-ngrok-domain>` (no trailing slash).
+   Keep `OLLAMA_BASE_URL` as it is: the same address now reaches Ollama through the ASR server.
+5. Stop the old ngrok autostart (Task Scheduler: `MedRoute-NgrokTunnel`), it holds your domain on port 11434.
+
+**Every time (before a demo)**
+```powershell
+.\start-asr.ps1 -Domain your-domain.ngrok-free.dev
+```
+It starts the server, waits until Whisper is loaded, then opens the tunnel.
+Check from any browser: `https://<your-domain>/health` shows the model and device.
+
+**Test the fallback on purpose:** on Railway set `GROQ_API_KEY` to a wrong value for a minute (or remove it),
+upload a call, and the stepper shows `whisper-laptop` with the *fallback* tag.
+
+Notes
+- The laptop must be on, online, and running `start-asr.ps1`. If not, the upload fails with one short line
+  ("laptop ASR unreachable ...").
+- Only the allowed Ollama paths are forwarded (`/api/generate`, `/api/chat`, `/api/tags`, `/api/show`, `/api/version`).
+  Model management (pull / delete) is blocked. The Ollama paths themselves have no token, as before.
+- `whisper small` on CPU takes roughly 1 to 3 minutes for a 3-minute call. Set `WHISPER_DEVICE=cuda` and
+  `WHISPER_COMPUTE_TYPE=float16` in the laptop `.env` if you have an NVIDIA GPU.
+- `start-asr.ps1` picks `--url` or `--domain` automatically, depending on your ngrok version.
+
+---
+
 ## 3. Deploy Frontend → Vercel
 
 ```powershell

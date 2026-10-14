@@ -65,3 +65,18 @@ Notes: Whisper returns native script (Devanagari / Kannada), not Roman like Sarv
 **Backend: keep what the LLM already extracts.** `owner` (patient_request / staff_commitment / follow_up), `due_by`, `entities` and the urgent flag were extracted but dropped before saving. They are now saved.
 Run `database/migrations/003_structured_fields.sql` in Supabase to enable this. If you don't, uploads still work (the save falls back to the old columns) and the UI simply hides those fields.
 Files: `routing/router.py`, `pipeline/orchestrator.py`, `llm/prompts/action_extraction.txt`, `backend/routes/get_tickets.py`.
+
+
+# Laptop ASR through the tunnel
+
+ASR chain is now **Groq -> laptop Whisper (tunnel) -> in-process Whisper (only if faster-whisper is installed)**.
+Steps that are not configured are skipped; failures are reported as one short line per step (no HTML from the tunnel).
+
+| What | Files |
+|---|---|
+| Laptop server: `POST /transcribe` (token protected), `GET /health`, Ollama pass-through for allowed paths only, one transcription at a time, binds to 127.0.0.1 | `asr_server.py` |
+| Backend client for it (5 s connect timeout, readable errors) | `asr/providers/remote_asr.py` |
+| New chain + `fallback_used` | `asr/dual_mode.py` |
+| Settings `ASR_REMOTE_URL`, `ASR_TOKEN`, `ASR_REMOTE_TIMEOUT_SECONDS`, `ASR_SERVER_PORT`, `ASR_SERVER_OLLAMA_URL` | `config.py`, `.env.example` |
+| Launcher: server + ngrok tunnel | `start-asr.ps1` |
+| Setup and test steps | `DEPLOY.md` section 2b |
